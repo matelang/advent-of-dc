@@ -1,4 +1,6 @@
-.PHONY: week0 week1 week2 week3 week4
+.PHONY: week0 week1 week2 week3 week4 week5
+
+all: week0 week1 #week2 #week3 week4 week5
 
 week0:
 	go build -o bin/w0 week0/main.go
@@ -11,7 +13,10 @@ week1:
 
 week2:
 	go build -o bin/w2 week2/main.go
-	./maelstrom test -w broadcast --bin ./bin/w2 --node-count 1 --time-limit 20 --rate 10
+	maelstrom test -w broadcast --bin ./bin/w2 --node-count 1 --time-limit 20 --rate 10
+
+results:
+	maelstrom serve
 
 clean:
 	rm -rf ./store/*

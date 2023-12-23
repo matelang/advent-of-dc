@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 	"log"
@@ -15,20 +14,20 @@ type UniqueIDSource interface {
 	ID() string
 }
 
-type IntegerUniqueIDSource struct {
+type integerUniqueIDSource struct {
 	nodeID  string
 	mutex   sync.Mutex
 	counter int
 }
 
 func NewIntegerUniqueIDSource() UniqueIDSource {
-	return &IntegerUniqueIDSource{
+	return &integerUniqueIDSource{
 		nodeID:  fmt.Sprintf("%d-%d", os.Getpid(), time.Now().Unix()),
 		counter: 0,
 	}
 }
 
-func (s *IntegerUniqueIDSource) ID() string {
+func (s *integerUniqueIDSource) ID() string {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	s.counter++
@@ -36,7 +35,7 @@ func (s *IntegerUniqueIDSource) ID() string {
 	return fmt.Sprintf("%s-%d", s.nodeID, s.counter)
 }
 
-type RandomStringUniqueIDSource struct {
+type randomStringUniqueIDSource struct {
 	nodeID string
 	chars  string
 	length int
@@ -45,14 +44,14 @@ type RandomStringUniqueIDSource struct {
 func NewRandomStringUniqueIDSource(length int) UniqueIDSource {
 	var chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
 
-	return &RandomStringUniqueIDSource{
+	return &randomStringUniqueIDSource{
 		nodeID: fmt.Sprintf("%d-%d", os.Getpid(), time.Now().Unix()),
 		chars:  chars,
 		length: length,
 	}
 }
 
-func (s *RandomStringUniqueIDSource) ID() string {
+func (s *randomStringUniqueIDSource) ID() string {
 	ll := len(s.chars)
 	b := make([]byte, s.length)
 	rand.Read(b)
@@ -69,18 +68,19 @@ func main() {
 	//s := NewIntegerUniqueIDSource()
 	s := NewRandomStringUniqueIDSource(13)
 
-	n.Handle("generate", func(msg maelstrom.Message) error {
-		var body map[string]any
-		if err := json.Unmarshal(msg.Body, &body); err != nil {
-			return err
-		}
-
-		body["type"] = "generate_ok"
-		body["id"] = s.ID()
-		return n.Reply(msg, body)
-	})
+	n.Handle("generate", generateHandler(n, s))
 
 	if err := n.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func generateHandler(n *maelstrom.Node, s UniqueIDSource) maelstrom.HandlerFunc {
+	return func(msg maelstrom.Message) error {
+		var reply map[string]any
+
+		reply["type"] = "generate_ok"
+		reply["id"] = s.ID()
+		return n.Reply(msg, reply)
 	}
 }
