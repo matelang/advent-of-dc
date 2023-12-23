@@ -13,7 +13,10 @@ week1:
 
 week2:
 	go build -o bin/w2 week2/main.go
-	maelstrom test -w broadcast --bin ./bin/w2 --node-count 1 --time-limit 20 --rate 10
+	# maelstrom test -w broadcast --bin ./bin/w2 --node-count 1 --time-limit 20 --rate 10
+	# maelstrom test -w broadcast --bin ./bin/w2 --node-count 5 --time-limit 20 --rate 10
+	maelstrom test -w broadcast --bin ./bin/w2 --node-count 5 --time-limit 20 --rate 10 --nemesis partition
+
 
 results:
 	maelstrom serve

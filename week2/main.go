@@ -6,6 +6,7 @@ import (
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 	"log"
 	"os"
+	"slices"
 	"sync"
 )
 
@@ -37,8 +38,12 @@ func (s *inMemoryMapMessageStore) List() []int {
 	for k := range s.messages {
 		keys = append(keys, k)
 	}
+
 	return keys
 }
+
+var neighborListMutex sync.Mutex
+var neighborList []string
 
 func main() {
 	n := maelstrom.NewNode()
@@ -57,23 +62,37 @@ func main() {
 func broadcastHandler(n *maelstrom.Node, s MessageStore[int]) maelstrom.HandlerFunc {
 	return func(msg maelstrom.Message) error {
 		var body struct {
-			Message int `json:"message"`
+			Type    string `json:"type"`
+			Message int    `json:"message"`
 		}
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
 
-		fmt.Fprintf(os.Stderr, "matekaaa received %v", body)
-
 		s.Store(body.Message)
 
-		for _, neighbour := range n.NodeIDs() {
-			if neighbour == n.ID() {
+		for _, neighbour := range neighborList {
+			if neighbour == msg.Src {
 				continue
 			}
 
-			fmt.Fprintf(os.Stderr, "sending %v to %s", body, neighbour)
-			n.Send(neighbour, body)
+			fmt.Fprintf(os.Stderr, "mate - sending %v to %s\n", body, neighbour)
+			go func(nn string) {
+				err := n.RPC(nn, body, func(msg maelstrom.Message) error {
+					if msg.Type() != "broadcast_ok" {
+						log.Fatal("unexpected brodacast message response type %s", msg.Type())
+					}
+
+					return nil
+				})
+
+				if err != nil {
+					log.Fatal(
+						fmt.Errorf("error sending RPC while trying to broadcast message %v to neighbors: %w",
+							msg.Body, err),
+					)
+				}
+			}(neighbour)
 		}
 
 		reply := map[string]any{}
@@ -85,26 +104,39 @@ func broadcastHandler(n *maelstrom.Node, s MessageStore[int]) maelstrom.HandlerF
 
 func readHandler(n *maelstrom.Node, s MessageStore[int]) maelstrom.HandlerFunc {
 	return func(msg maelstrom.Message) error {
-		var body map[string]any
-		if err := json.Unmarshal(msg.Body, &body); err != nil {
-			return err
+		var reply struct {
+			Type     string `json:"type"`
+			Messages []int  `json:"messages"`
 		}
 
-		messages := s.List()
+		reply.Type = "read_ok"
+		reply.Messages = s.List()
 
-		body["type"] = "read_ok"
-		body["messages"] = messages
+		fmt.Fprintf(os.Stderr, "mate - returning to read from %s message %v\n", msg.Src, reply.Messages)
 
-		return n.Reply(msg, body)
+		return n.Reply(msg, reply)
 	}
 }
 
 func topologyHandler(n *maelstrom.Node) maelstrom.HandlerFunc {
 	return func(msg maelstrom.Message) error {
-		var body map[string]any
+		var body struct {
+			Topology map[string][]string `json:"topology"`
+		}
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
+
+		neighborListMutex.Lock()
+		defer neighborListMutex.Unlock()
+
+		updatedNeighbors := body.Topology[n.ID()]
+
+		slices.Sort(updatedNeighbors)
+
+		var newNeighbors []string
+
+		neighborList = updatedNeighbors
 
 		reply := map[string]any{}
 		reply["type"] = "topology_ok"
